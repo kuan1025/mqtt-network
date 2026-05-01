@@ -7,10 +7,22 @@ const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
 const TOPIC = 'ems/+/meters';
 
 // --- The community unit ID needs to be mapped. IoT devices cannot transmit strings, so please clarify (Internal Configuration) ---
-const DEVICE_REGISTRY = {
-    "MINI-001": { community: "North Brisbane XXXX", unit: "Unit-A" },
-    "MINI-002": { community: "South Brisbane XXXX", unit: "Unit-01" }
+
+const DEVICE_MAP = {
+    1: "MINI-001",
+    2: "MINI-002"
 };
+
+const COMMUNITY_MAP = {
+    1: "North Brisbane XXXX",
+    2: "South Brisbane XXXX"
+};
+
+const UNIT_MAP = {
+    1: "Unit-A",
+    15: "Unit-15"
+};
+
 
 // --- Initialization ---
 const redis = new Redis({ host: REDIS_HOST, port: 6379 });
@@ -25,55 +37,57 @@ client.on('connect', () => {
 
 client.on('message', async (topic, message) => {
     try {
-        // 1. Parse raw MQTT message to JSON
-        const incomingData = JSON.parse(message.toString());
-        const { message_id, kwh_total, voltage, battery_v } = incomingData;
-
-        if (!message_id) {
-            console.warn('[Warn] Packet dropped: No message_id found');
+        // 1. (C Struct Payload 26 bytes)
+        if (message.length !== 26) {
+            console.warn(`[Warn] Packet dropped: Invalid size ${message.length} bytes. Expected 26 bytes.`);
             return;
         }
 
-        // 2. Concurrency Deduplication 
-        // Set key with 24h expiration only if it does not exist (NX)
-        const isNew = await redis.set(`msg:${message_id}`, 'processed', 'NX', 'EX', 86400);
+        const uid          = message.readUInt32LE(0);   // 4 bytes
+        const seq          = message.readUInt32LE(4);   // 4 bytes
+        const kwh_import   = message.readFloatLE(8);    // 4 bytes
+        const kwh_export   = message.readFloatLE(12);   // 4 bytes
+        const voltage      = message.readFloatLE(16);   // 4 bytes
+        const battery_v    = message.readFloatLE(20);   // 4 bytes
+        const community_id = message.readUInt8(24);     // 1 byte
+        const unit_id      = message.readUInt8(25);     // 1 byte
 
-        if (isNew) {
-            // 3. String Manipulation: Extracting actual_meter_id
-            // Input: "MINI-002-A1B2-1" -> Output: "MINI-002"
-            const parts = message_id.split('-');
-            const actual_meter_id = parts.length > 2 ? parts.slice(0, -2).join('-') : message_id;
-            
-            // 4. Mapping metadata
-            const deviceInfo = DEVICE_REGISTRY[actual_meter_id] || { 
-                community: "Unknown Community", 
-                unit: "Unknown Unit" 
-            };
+        const uniqueKey = `${uid}-${seq}`;
+        const isNew = await redis.set(`msg:${uniqueKey}`, 'processed', 'NX', 'EX', 86400);
 
-            // 5. Final Schema Construction 
+
+       if (isNew) {
+            // 4. mapping Metadata
+            const deviceName = DEVICE_MAP[uid] || `Unknown-Dev-${uid}`;
+            const communityName = COMMUNITY_MAP[community_id] || `Unknown-Comm-${community_id}`;
+            const unitName = UNIT_MAP[unit_id] || `Unknown-Unit-${unit_id}`;
+
+            // 5. JSON Schema 
             const internalPayload = {
-                meter_id: actual_meter_id,
-                community: deviceInfo.community,
-                unit: deviceInfo.unit,
+                meter_id: deviceName,
+                community: communityName,
+                unit: unitName,
                 timestamp: Math.floor(Date.now() / 1000),
                 metrics: {
-                    kwh: kwh_total ? kwh_total.toFixed(2) : '0.00',
-                    volts: voltage ? voltage.toFixed(1) : '0.0',
-                    batt: battery_v ? battery_v.toFixed(2) : '0.00'
+                    kwh_import: kwh_import.toFixed(2),
+                    kwh_export: kwh_export.toFixed(2),
+                    volts: voltage.toFixed(1),
+                    batt: battery_v.toFixed(2)
                 },
-                raw_id: message_id
+                raw_uid: uid,
+                raw_seq: seq
             };
 
-            console.log(`[Process] Validated Data: [${internalPayload.community}] Device: ${internalPayload.meter_id}`);
-            console.log(`Values: ${internalPayload.metrics.kwh} kWh | ${internalPayload.metrics.volts}V | Battery: ${internalPayload.metrics.batt}V`);
+    
+            console.log(`[Process] Validated Data: [${internalPayload.community}] Device: ${internalPayload.meter_id} (Unit: ${internalPayload.unit})`);
+            console.log(`Values: In ${internalPayload.metrics.kwh_import} kWh | Out ${internalPayload.metrics.kwh_export} kWh | ${internalPayload.metrics.volts}V | Battery: ${internalPayload.metrics.batt}V`);
 
-
-            // 6. TODO : insert ->  DB 
+            // 6. TODO : insert ->  DB
 
             
         } else {
             // Redis hit: this message_id has been processed already
-            console.log(`[Filter] Duplicate ignored: ${message_id}`);
+            console.log(`[Filter] Duplicate ignored: UID=${uid}, SEQ=${seq}`);
         }
 
     } catch (error) {
