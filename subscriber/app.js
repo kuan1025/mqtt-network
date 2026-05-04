@@ -2,9 +2,9 @@ const mqtt = require('mqtt');
 const Redis = require('ioredis');
 
 // --- Configuration ---
-const MQTT_URL = process.env.MQTT_URL || 'mqtt://localhost:1883';
+const MQTT_URL = 'mqtt://broker.hivemq.com:1883';
 const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
-const TOPIC = 'ems/+/meters';
+const TOPIC = 'qut_ems_project_888/ems/zoneA/meters';
 
 // --- The community unit ID needs to be mapped. IoT devices cannot transmit strings, so please clarify (Internal Configuration) ---
 

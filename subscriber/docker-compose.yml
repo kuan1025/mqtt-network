@@ -1,14 +1,14 @@
 version: '3.8'
 
 services:
-  # MQTT Broker
-  mosquitto:
-    image: eclipse-mosquitto:latest
-    ports:
-      - "1883:1883"
-    volumes:
-      - ./mosquitto/config:/mosquitto/config
-      - ./mosquitto/data:/mosquitto/data
+  # # MQTT Broker
+  # mosquitto:
+  #   image: eclipse-mosquitto:latest
+  #   ports:
+  #     - "1883:1883"
+  #   volumes:
+  #     - ./mosquitto/config:/mosquitto/config
+  #     - ./mosquitto/data:/mosquitto/data
 
   # Redis - Deduplication
   redis:
@@ -19,9 +19,9 @@ services:
   subscriber:
     build: .
     depends_on:
-      - mosquitto
+      # - mosquitto
       - redis
     environment:
-      - MQTT_URL=mqtt://mosquitto:1883
+      - MQTT_URL=mqtt://broker.hivemq.com:1883
       - REDIS_HOST=redis
     restart: always

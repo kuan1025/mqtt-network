@@ -1,8 +1,8 @@
 const mqtt = require('mqtt');
 
 
-const MQTT_URL = 'mqtt://localhost:1883';
-const TOPIC = 'ems/zoneA/meters'; 
+const MQTT_URL = 'mqtt://broker.hivemq.com:1883';
+const TOPIC = 'qut_ems_project_888/ems/+/meters';
 
 const client = mqtt.connect(MQTT_URL);
 
